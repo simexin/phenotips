@@ -255,11 +255,17 @@ define([
                 var label = new Element('label', {'class': 'export-config-header ped-header'}).insert("Which of the following should be reflected in the affected column in PED file? ");
                 pedContainer.insert(label.wrap('td').wrap('tr', {'class' : "ped-special-options"}));
 
-                hasDisorders && this._addPedOption("disorders", disorders, pedContainer);
-                hasPhenotypes && this._addPedOption("phenotypes", hpos, pedContainer);
-                hasCancers && this._addPedOption("cancers", cancers, pedContainer);
-                hasCandidateGenes && this._addPedOption("candidateGenes", candidateGenes, pedContainer, "candidate genes");
-                hasCausalGenes && this._addPedOption("causalGenes", causalGenes, pedContainer, "confirmed causal genes");
+                var traitsContainner = new Element('table');
+
+                hasDisorders && this._addPedOption("disorders", disorders, traitsContainner);
+                hasPhenotypes && this._addPedOption("phenotypes", hpos, traitsContainner);
+                hasCancers && this._addPedOption("cancers", cancers, traitsContainner);
+                hasCandidateGenes && this._addPedOption("candidateGenes", candidateGenes, traitsContainner, "candidate genes");
+                hasCausalGenes && this._addPedOption("causalGenes", causalGenes, traitsContainner, "confirmed causal genes");
+
+                pedContainer.insert(traitsContainner.wrap('div', {'class': 'scrollable-container', 'style': 'max-height:'+Math.floor(window.innerHeight/2)+'px;'})
+                                                    .wrap('td')
+                                                    .wrap('tr', {'class' : "ped-special-options"}));
             }
 
             this.dialog.show();
@@ -275,8 +281,8 @@ define([
             this.dialog.closeDialog();
         },
 
-        _addConfigOption: function (checked, name, cssClass, labelText, value, type, isPedSpecialOption) {
-            var optionWrapper = new Element('tr', {'class' : (isPedSpecialOption) ? "ped-special-options" : ""});
+        _addConfigOption: function (checked, name, cssClass, labelText, value, type) {
+            var optionWrapper = new Element('tr');
             var itype = type ? type : "radio";
             var input = new Element('input', {"type" : itype, "value": value, "name": name });
             if (checked) {
@@ -291,18 +297,17 @@ define([
             var cssClass = "ped-" + type + "-options";
             var text = (labelText) ? labelText : type;
             var label = new Element('label', {'class': 'export-config-header ' + cssClass, 'name' : cssClass}).insert(text + ":");
-            pedContainer.insert(label.wrap('td').wrap('tr', {'class' : "ped-special-options"}));
+            pedContainer.insert(label.wrap('td').wrap('tr'));
 
             // adding "All" checkbox
             if (Object.keys(data).length > 1) {
-                pedContainer.insert(this._addConfigOption((type == "disorders"), cssClass, "export-subconfig-label", "All", "all", "checkbox", true));
+                pedContainer.insert(this._addConfigOption((type == "disorders"), cssClass, "export-subconfig-label", "All", "all", "checkbox"));
                 pedContainer.on('click', 'input[type=checkbox][name="' + cssClass + '"]', function(event, element) {
                     if (element.value == "all") {
                         $$('input[name="' + cssClass + '"]').each( function(item) {item.checked = element.checked;});
                     } else {
-
-                        // either uncheck checkbox for "All" if some sub-items are unchcked, or check it if all
-                        // subitems became checked
+                        // either uncheck checkbox for "All" if some sub-items are unchecked, 
+                        // or check it if all subitems became checked
                         var unchecked = false;
                         $$('input[name="' + cssClass + '"]').each( function(item) {if (item.value != "all" && !item.checked) { unchecked = true; };});
 
@@ -313,9 +318,9 @@ define([
 
             for (var item in data) {
                 if (type == "disorders" && item == "affected") {
-                    pedContainer.insert(this._addConfigOption((type == "disorders"), cssClass, "export-subconfig-label ped-option", "Unspecified disorder", "affected", "checkbox", true));
+                    pedContainer.insert(this._addConfigOption((type == "disorders"), cssClass, "export-subconfig-label ped-option", "Unspecified disorder", "affected", "checkbox"));
                 } else {
-                    pedContainer.insert(this._addConfigOption((type == "disorders"), cssClass, "export-subconfig-label ped-option", data[item], item, "checkbox", true));
+                    pedContainer.insert(this._addConfigOption((type == "disorders"), cssClass, "export-subconfig-label ped-option", data[item], item, "checkbox"));
                 }
             }
         }
