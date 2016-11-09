@@ -8,10 +8,12 @@
  */
 define([
         "pedigree/pedigreeEditorParameters",
-        "pedigree/view/printEngine"
+        "pedigree/view/printEngine",
+        "pedigree/view/graphicHelpers"
     ], function(
         PedigreeEditorParameters,
-        PrintEngine
+        PrintEngine,
+        GraphicHelpers
     ){
     var PrintDialog = Class.create( {
 
@@ -22,6 +24,8 @@ define([
             this._landscape = true;
             this._zoomLevel = 100;
             this._moveHorizontally = 0;
+            this._minPreviewHeight = PedigreeEditorParameters.attributes.minPrintPreviewPaneHeight;
+            this._maxPreviewHeight = PedigreeEditorParameters.attributes.maxPrintPreviewPaneHeight;
             this._printPageSet = {};
             this._printEngine = new PrintEngine();
 
@@ -150,7 +154,7 @@ define([
             var closeShortcut = ['Esc'];
             this.dialog = new PhenoTips.widgets.ModalPopup(mainDiv, {close: {method : this.hide.bind(this), keys : closeShortcut}}, {extraClassName: "pedigree-print-dialog", title: "Print pedigree", displayCloseButton: true, verticalPosition: "top"});
 
-            Event.observe(window, 'resize', _this._adjustPreviewWindowHeight.bind(_this));
+            Event.observe(window, 'resize', GraphicHelpers.adjustPreviewWindowHeight.bind(_this, "pedigree-print-dialog", 'printPreview', this._minPreviewHeight, this._maxPreviewHeight));
         },
 
         /**
@@ -203,29 +207,6 @@ define([
         },
 
         /**
-         * Attempts to make preview window fit on screen by adjusting the preview pane height
-         */
-        _adjustPreviewWindowHeight: function() {
-            var canvas = editor.getWorkspace().canvas || $('body');
-            var pedigreeDialogue = $$('.pedigree-print-dialog')[0];
-            if (!pedigreeDialogue) {
-                return;
-            }
-            var screenHeight = canvas.getHeight() - 10;
-            var dialogueHeight = pedigreeDialogue.getHeight();
-            var freeSpace = screenHeight - dialogueHeight;
-            var previewPaneHeight = $('printPreview').getHeight();
-            if (freeSpace < 0) {
-                var newPreviewHeight = Math.max(PedigreeEditorParameters.attributes.minPrintPreviewPaneHeight, previewPaneHeight + freeSpace);
-                $('printPreview').style.height = newPreviewHeight + "px";
-            }
-            if (freeSpace > 0 && previewPaneHeight < PedigreeEditorParameters.attributes.maxPrintPreviewPaneHeight) {
-                var newPreviewHeight = Math.min(PedigreeEditorParameters.attributes.maxPrintPreviewPaneHeight, previewPaneHeight + freeSpace);
-                $('printPreview').style.height = newPreviewHeight + "px";
-            }
-        },
-
-        /**
          * Updates print preview using currently selected zoom level.
          */
         _updatePreview: function() {
@@ -236,7 +217,7 @@ define([
                                                                     this._moveHorizontally,
                                                                     options);
             this.previewContainer.update(previewHTML);
-            this._adjustPreviewWindowHeight();
+            GraphicHelpers.adjustPreviewWindowHeight("pedigree-print-dialog", 'printPreview', this._minPreviewHeight, this._maxPreviewHeight);
 
             var _this = this;
             this._printPageSet = {};

@@ -5,14 +5,21 @@
  */
 define([
         "pedigree/filesaver/FileSaver",
-        "pedigree/model/export"
+        "pedigree/model/export",
+        "pedigree/pedigreeEditorParameters",
+        "pedigree/view/graphicHelpers"
     ], function(
         FileSaver,
-        PedigreeExport
+        PedigreeExport,
+        PedigreeEditorParameters,
+        GraphicHelpers
     ){
     var ExportSelector = Class.create( {
 
         initialize: function() {
+            this._minPreviewHeight = PedigreeEditorParameters.attributes.minPrintPreviewPaneHeight;
+            this._maxPreviewHeight = PedigreeEditorParameters.attributes.maxPrintPreviewPaneHeight;
+
             var _this = this;
 
             var mainDiv = new Element('div', {'class': 'export-selector'});
@@ -82,6 +89,8 @@ define([
 
             var closeShortcut = ['Esc'];
             this.dialog = new PhenoTips.widgets.ModalPopup(mainDiv, {close: {method : this.hide.bind(this), keys : closeShortcut}}, {extraClassName: "pedigree-import-chooser", title: "Pedigree export", displayCloseButton: false, verticalPosition: "top"});
+
+            Event.observe(window, 'resize', GraphicHelpers.adjustPreviewWindowHeight.bind(_this, "pedigree-import-chooser", 'scrollable-container', this._minPreviewHeight, this._maxPreviewHeight));
         },
 
         /*
@@ -263,12 +272,10 @@ define([
                 hasCandidateGenes && this._addPedOption("candidateGenes", candidateGenes, traitsContainner, "candidate genes");
                 hasCausalGenes && this._addPedOption("causalGenes", causalGenes, traitsContainner, "confirmed causal genes");
 
-                pedContainer.insert(traitsContainner.wrap('div', {'class': 'scrollable-container', 'style': 'max-height:'+Math.floor(window.innerHeight/2)+'px;'})
-                                                    .wrap('td')
-                                                    .wrap('tr', {'class' : "ped-special-options"}));
+                pedContainer.insert(traitsContainner.wrap('div', {'id': 'scrollable-container'}).wrap('td').wrap('tr', {'class': 'ped-special-options'}));
             }
-
             this.dialog.show();
+            GraphicHelpers.adjustPreviewWindowHeight('pedigree-import-chooser', 'scrollable-container', this._minPreviewHeight, this._maxPreviewHeight);
         },
 
         /**
@@ -306,7 +313,7 @@ define([
                     if (element.value == "all") {
                         $$('input[name="' + cssClass + '"]').each( function(item) {item.checked = element.checked;});
                     } else {
-                        // either uncheck checkbox for "All" if some sub-items are unchecked, 
+                        // either uncheck checkbox for "All" if some sub-items are unchecked,
                         // or check it if all subitems became checked
                         var unchecked = false;
                         $$('input[name="' + cssClass + '"]').each( function(item) {if (item.value != "all" && !item.checked) { unchecked = true; };});
