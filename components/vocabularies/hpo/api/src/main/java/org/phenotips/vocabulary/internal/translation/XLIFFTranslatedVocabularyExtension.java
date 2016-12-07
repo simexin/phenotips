@@ -17,6 +17,7 @@
  */
 package org.phenotips.vocabulary.internal.translation;
 
+import org.phenotips.vocabulary.MachineTranslator;
 import org.phenotips.vocabulary.Vocabulary;
 import org.phenotips.vocabulary.VocabularyExtension;
 import org.phenotips.vocabulary.VocabularyInputTerm;
@@ -26,6 +27,10 @@ import org.xwiki.localization.LocalizationContext;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
 
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -57,14 +62,24 @@ public class XLIFFTranslatedVocabularyExtension implements VocabularyExtension
      */
 
     /**
-     * The format for the name field.
+     * The name field.
      */
-    private static final String NAME_FORMAT = "name_%s";
+    private static final String NAME = "name";
 
     /**
-     * The format for the definition field.
+     * The definition field.
      */
-    private static final String DEF_FORMAT = "def_%s";
+    private static final String DEF = "def";
+
+    /**
+     * The format to add a language to a solr field.
+     */
+    private static final String FIELD_FORMAT = "%s_%s";
+
+    /**
+     * A map going from the names of properties in the solr index to the names of properties in the xliff file.
+     */
+    private static final Map<String, String> PROP_MAP;
 
     /**
      * The current language. Will be set when we start indexing so that the component supports dynamically switching
@@ -77,6 +92,12 @@ public class XLIFFTranslatedVocabularyExtension implements VocabularyExtension
      */
     @Inject
     private Logger logger;
+
+    /**
+     * The machine translator.
+     */
+    @Inject
+    private MachineTranslator translator;
 
     /**
      * The deserialized xliff.
@@ -94,6 +115,17 @@ public class XLIFFTranslatedVocabularyExtension implements VocabularyExtension
      */
     private XmlMapper mapper = new XmlMapper();
 
+    /**
+     * Whether this translation is working at all.
+     */
+    private boolean enabled;
+
+    static {
+        PROP_MAP = new HashMap<>(2);
+        PROP_MAP.put(NAME, "label");
+        PROP_MAP.put(DEF, "definition");
+    }
+
     @Override
     public boolean isVocabularySupported(Vocabulary vocabulary)
     {
@@ -103,7 +135,11 @@ public class XLIFFTranslatedVocabularyExtension implements VocabularyExtension
     @Override
     public void indexingStarted(Vocabulary vocabulary)
     {
+        this.enabled = false;
         this.lang = this.localizationContext.getCurrentLocale().getLanguage();
+        if (shouldMachineTranslate(vocabulary.getIdentifier())) {
+            this.translator.loadVocabulary(vocabulary.getIdentifier());
+        }
         String xml = String.format(TRANSLATION_XML_FORMAT, vocabulary.getIdentifier(), this.lang);
         try {
             InputStream inStream = this.getClass().getResourceAsStream(xml);
@@ -119,8 +155,11 @@ public class XLIFFTranslatedVocabularyExtension implements VocabularyExtension
             this.xliff = this.mapper.readValue(inStream, XLiffFile.class);
             inStream.close();
         } catch (IOException e) {
-            throw new RuntimeException("indexingStarted exception", e);
+            this.logger.error("indexingStarted exception " + e.getMessage());
+            return;
         }
+        /* Everything worked out, enable it */
+        this.enabled = true;
     }
 
     @Override
@@ -129,21 +168,51 @@ public class XLIFFTranslatedVocabularyExtension implements VocabularyExtension
         // This thing holds a huge dictionary inside it, so we don't want java to have any qualms about garbage
         // collecting it.
         this.xliff = null;
+        if (shouldMachineTranslate(vocabulary.getIdentifier())) {
+            this.translator.unloadVocabulary(vocabulary.getIdentifier());
+        }
+        this.enabled = false;
     }
 
     @Override
     public void extendTerm(VocabularyInputTerm term, Vocabulary vocabulary)
     {
+        if (!this.enabled) {
+            return;
+        }
         String id = term.getId();
-        String label = this.xliff.getString(id, "label");
-        String definition = this.xliff.getString(id, "definition");
+        String label = this.xliff.getFirstString(id, PROP_MAP.get(NAME));
+        String definition = this.xliff.getFirstString(id, PROP_MAP.get(DEF));
+        Collection<String> fields = new ArrayList<>(2);
         if (label != null) {
-            term.set(String.format(NAME_FORMAT, this.lang), label);
+            term.set(String.format(FIELD_FORMAT, NAME, this.lang), label);
+        } else {
+            /*
+             * This is not meant to be the PROP_MAP.get(NAME) because it's the field that the machine translator (not
+             * the official HPO xliff sheet) knows this field by, which has no reason not to be the same field that we
+             * use.
+             */
+            fields.add(NAME);
         }
         if (definition != null) {
-            term.set(String.format(DEF_FORMAT, this.lang), definition);
+            term.set(String.format(FIELD_FORMAT, DEF, this.lang), definition);
+        } else {
+            fields.add(DEF);
         }
-        // TODO Else clauses that dynamically machine-translate the missing stuff
-        // (or get it from a cache so we don't spend our lives translating).
+        if (shouldMachineTranslate(vocabulary.getIdentifier())) {
+            this.translator.translate(vocabulary.getIdentifier(), term, fields);
+        }
+    }
+
+    /**
+     * Return whether we should run the vocabulary given through a machine tranlsator.
+     *
+     * @param vocabulary the vocabulary
+     * @return whether it should be machine translated.
+     */
+    private boolean shouldMachineTranslate(String vocabulary)
+    {
+        return this.translator.getSupportedLanguages().contains(this.lang)
+            && this.translator.getSupportedVocabularies().contains(vocabulary);
     }
 }
