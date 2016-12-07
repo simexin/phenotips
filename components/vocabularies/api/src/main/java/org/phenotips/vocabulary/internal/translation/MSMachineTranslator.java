@@ -17,6 +17,8 @@
  */
 package org.phenotips.vocabulary.internal.translation;
 
+import org.phenotips.vocabulary.MachineTranslator;
+
 import org.xwiki.component.annotation.Component;
 import org.xwiki.component.phase.InitializationException;
 import org.xwiki.configuration.ConfigurationSource;
@@ -26,7 +28,7 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Collection;
-import java.util.HashSet;
+import java.util.Collections;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -38,15 +40,13 @@ import javax.inject.Singleton;
 import org.apache.http.client.fluent.Request;
 import org.apache.http.client.utils.URIBuilder;
 import org.apache.http.message.BasicNameValuePair;
-
 import org.slf4j.Logger;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * Implements the {@link MachineTranslator} interface to provide translation services
- * through microsoft translate.
+ * Implements the {@link MachineTranslator} interface to provide translation services through microsoft translate.
  *
  * @version $Id$
  */
@@ -57,12 +57,12 @@ public class MSMachineTranslator extends AbstractMachineTranslator
     /**
      * The supported languages.
      */
-    private static final Collection<String> SUPPORTED_LANGUAGES;
+    private static final Collection<String> SUPPORTED_LANGUAGES = Collections.singleton("es");
 
     /**
      * The supported vocabularies.
      */
-    private static final Collection<String> SUPPORTED_VOCABULARIES;
+    private static final Collection<String> SUPPORTED_VOCABULARIES = Collections.singleton("hpo");
 
     /**
      * This machine translator's identifier.
@@ -147,26 +147,19 @@ public class MSMachineTranslator extends AbstractMachineTranslator
      */
     private long tokenExpires;
 
-    static {
-        SUPPORTED_LANGUAGES = new HashSet<>();
-        SUPPORTED_LANGUAGES.add("es");
-        SUPPORTED_VOCABULARIES = new HashSet<>();
-        SUPPORTED_VOCABULARIES.add("hpo");
-    }
-
     @Override
     public void initialize() throws InitializationException
     {
         super.initialize();
         this.clientId = this.configuration.getProperty(CLIENT_ID_CFG, "").trim();
         this.clientSecret = this.configuration.getProperty(CLIENT_SECRET_CFG, "").trim();
-        this.enabled = this.clientId != null && !"".equals(clientId) && this.clientSecret != null
+        this.enabled = this.clientId != null && !"".equals(this.clientId) && this.clientSecret != null
             && !"".equals(this.clientSecret);
         this.om = new ObjectMapper();
     }
 
     @Override
-    protected String doTranslate(String input)
+    protected String doTranslate(String input, String lang)
     {
         if (!this.enabled) {
             return null;
@@ -179,14 +172,15 @@ public class MSMachineTranslator extends AbstractMachineTranslator
             builder.addParameter("appId", "");
             builder.addParameter("text", input);
             builder.addParameter("from", "en");
-            builder.addParameter("to", getLanguage());
+            builder.addParameter("to", lang);
             builder.addParameter("contentType", "text/plain");
             URI uri = builder.build();
-            String result = Request.Get(uri).
-                addHeader("Authorization", "Bearer " + token).
-                execute().returnContent().asString();
-            /* Microsoft hates documenting what it actually does, so I had to find out the hard way
-             * that it returns everything wrapped in this silly <string> tag. Filter it out */
+            String result = Request.Get(uri).addHeader("Authorization", "Bearer " + this.token).execute()
+                .returnContent().asString();
+            /*
+             * Microsoft hates documenting what it actually does, so I had to find out the hard way that it returns
+             * everything wrapped in this silly <string> tag. Filter it out
+             */
             Matcher m = OUT_PATTERN.matcher(result);
             m.find();
             if (m.matches()) {

@@ -30,14 +30,20 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 
 import javax.inject.Inject;
+import javax.inject.Provider;
 import javax.inject.Singleton;
 
 import org.slf4j.Logger;
 
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
+import com.xpn.xwiki.XWiki;
+import com.xpn.xwiki.XWikiContext;
 
 /**
  * Implements {@link VocabularyExtension} to provide translation services. Works with the xml files up at
@@ -82,10 +88,9 @@ public class XLIFFTranslatedVocabularyExtension implements VocabularyExtension
     private static final Map<String, String> PROP_MAP;
 
     /**
-     * The current language. Will be set when we start indexing so that the component supports dynamically switching
-     * without restarting phenotips.
+     * The supported languages. Will be set when we start indexing so the component supports dynamic switching.
      */
-    private String lang;
+    private Set<String> languages;
 
     /**
      * The logger.
@@ -100,9 +105,9 @@ public class XLIFFTranslatedVocabularyExtension implements VocabularyExtension
     private MachineTranslator translator;
 
     /**
-     * The deserialized xliff.
+     * The deserialized xliffs.
      */
-    private XLiffFile xliff;
+    private XLiffMap translations = new XLiffMap();
 
     /**
      * The localization context.
@@ -111,19 +116,53 @@ public class XLIFFTranslatedVocabularyExtension implements VocabularyExtension
     private LocalizationContext localizationContext;
 
     /**
+     * The context provider.
+     */
+    @Inject
+    private Provider<XWikiContext> contextProvider;
+
+    /**
+     * The xwiki object.
+     */
+    private XWiki xwiki;
+
+    /**
+     * The context.
+     */
+    private XWikiContext context;
+
+    /**
      * An xml mapper.
      */
     private XmlMapper mapper = new XmlMapper();
-
-    /**
-     * Whether this translation is working at all.
-     */
-    private boolean enabled;
 
     static {
         PROP_MAP = new HashMap<>(2);
         PROP_MAP.put(NAME, "label");
         PROP_MAP.put(DEF, "definition");
+    }
+
+    /**
+     * Get the supported languages as a set.
+     *
+     * @return the languages
+     */
+    private Set<String> getLanguages()
+    {
+        String languageString = this.xwiki.getXWikiPreference("languages",
+            this.localizationContext.getCurrentLocale().getLanguage(), this.context);
+        String[] split = languageString.split(",");
+        Set<String> retval = new HashSet<>(split.length);
+        for (String lang : split) {
+            if (lang == null) {
+                continue;
+            }
+            String trimmed = lang.trim();
+            if (!"".equals(trimmed) && !"en".equals(trimmed)) {
+                retval.add(trimmed);
+            }
+        }
+        return retval;
     }
 
     @Override
@@ -135,72 +174,81 @@ public class XLIFFTranslatedVocabularyExtension implements VocabularyExtension
     @Override
     public void indexingStarted(Vocabulary vocabulary)
     {
-        this.enabled = false;
-        this.lang = this.localizationContext.getCurrentLocale().getLanguage();
-        if (shouldMachineTranslate(vocabulary.getIdentifier())) {
-            this.translator.loadVocabulary(vocabulary.getIdentifier());
-        }
-        String xml = String.format(TRANSLATION_XML_FORMAT, vocabulary.getIdentifier(), this.lang);
-        try {
-            InputStream inStream = this.getClass().getResourceAsStream(xml);
-            if (inStream == null) {
-                /*
-                 * parse will strangely throw a malformed url exception if this is null, which is impossible to
-                 * distinguish from an actual malformed url exception, so check here and prevent going forward if
-                 * there's no translation
-                 */
-                this.logger.warn(String.format("Could not find resource %s", xml));
-                return;
+        this.context = this.contextProvider.get();
+        this.xwiki = this.context.getWiki();
+        this.languages = getLanguages();
+        /*
+         * We're gonna go over the languages and if something goes wrong, disable that language
+         */
+        Iterator<String> iterator = this.languages.iterator();
+        while (iterator.hasNext()) {
+            String lang = iterator.next();
+            if (shouldMachineTranslate(vocabulary.getIdentifier(), lang)) {
+                this.translator.loadVocabulary(vocabulary.getIdentifier(), lang);
             }
-            this.xliff = this.mapper.readValue(inStream, XLiffFile.class);
-            inStream.close();
-        } catch (IOException e) {
-            this.logger.error("indexingStarted exception " + e.getMessage());
-            return;
+            String xml = String.format(TRANSLATION_XML_FORMAT, vocabulary.getIdentifier(), lang);
+            try {
+                InputStream inStream = this.getClass().getResourceAsStream(xml);
+                if (inStream == null) {
+                    /*
+                     * parse will strangely throw a malformed url exception if this is null, which is impossible to
+                     * distinguish from an actual malformed url exception, so check here and prevent going forward if
+                     * there's no translation
+                     */
+                    this.logger.warn(String.format("Could not find resource %s", xml));
+                    iterator.remove();
+                    continue;
+                }
+                this.translations.put(vocabulary.getIdentifier(), lang,
+                    this.mapper.readValue(inStream, XLiffFile.class));
+                inStream.close();
+            } catch (IOException e) {
+                this.logger.error("indexingStarted exception " + e.getMessage());
+                iterator.remove();
+                continue;
+            }
         }
-        /* Everything worked out, enable it */
-        this.enabled = true;
     }
 
     @Override
     public void indexingEnded(Vocabulary vocabulary)
     {
-        // This thing holds a huge dictionary inside it, so we don't want java to have any qualms about garbage
-        // collecting it.
-        this.xliff = null;
-        if (shouldMachineTranslate(vocabulary.getIdentifier())) {
-            this.translator.unloadVocabulary(vocabulary.getIdentifier());
+        for (String lang : this.languages) {
+            if (shouldMachineTranslate(vocabulary.getIdentifier(), lang)) {
+                this.translator.unloadVocabulary(vocabulary.getIdentifier(), lang);
+            }
+            this.translations.remove(vocabulary.getIdentifier(), lang);
         }
-        this.enabled = false;
+        this.languages.clear();
     }
 
     @Override
     public void extendTerm(VocabularyInputTerm term, Vocabulary vocabulary)
     {
-        if (!this.enabled) {
-            return;
-        }
-        String id = term.getId();
-        String label = this.xliff.getFirstString(id, PROP_MAP.get(NAME));
-        String definition = this.xliff.getFirstString(id, PROP_MAP.get(DEF));
-        Collection<String> fields = new ArrayList<>(2);
-        if (label != null) {
-            term.set(String.format(FIELD_FORMAT, NAME, this.lang), label);
-        } else {
-            /*
-             * This is not meant to be the PROP_MAP.get(NAME) because it's the field that the machine translator (not
-             * the official HPO xliff sheet) knows this field by, which has no reason not to be the same field that we
-             * use.
-             */
-            fields.add(NAME);
-        }
-        if (definition != null) {
-            term.set(String.format(FIELD_FORMAT, DEF, this.lang), definition);
-        } else {
-            fields.add(DEF);
-        }
-        if (shouldMachineTranslate(vocabulary.getIdentifier())) {
-            this.translator.translate(vocabulary.getIdentifier(), term, fields);
+        for (String lang : this.languages) {
+            XLiffFile xliff = this.translations.get(vocabulary.getIdentifier(), lang);
+            String id = term.getId();
+            String label = xliff.getFirstString(id, PROP_MAP.get(NAME));
+            String definition = xliff.getFirstString(id, PROP_MAP.get(DEF));
+            Collection<String> fields = new ArrayList<>(2);
+            if (label != null) {
+                term.set(String.format(FIELD_FORMAT, NAME, lang), label);
+            } else {
+                /*
+                 * This is not meant to be the PROP_MAP.get(NAME) because it's the field that the machine translator
+                 * (not the official HPO xliff sheet) knows this field by, which has no reason not to be the same field
+                 * that we use.
+                 */
+                fields.add(NAME);
+            }
+            if (definition != null) {
+                term.set(String.format(FIELD_FORMAT, DEF, lang), definition);
+            } else {
+                fields.add(DEF);
+            }
+            if (shouldMachineTranslate(vocabulary.getIdentifier(), lang)) {
+                this.translator.translate(vocabulary.getIdentifier(), lang, term, fields);
+            }
         }
     }
 
@@ -208,11 +256,12 @@ public class XLIFFTranslatedVocabularyExtension implements VocabularyExtension
      * Return whether we should run the vocabulary given through a machine tranlsator.
      *
      * @param vocabulary the vocabulary
+     * @param lang the language
      * @return whether it should be machine translated.
      */
-    private boolean shouldMachineTranslate(String vocabulary)
+    private boolean shouldMachineTranslate(String vocabulary, String lang)
     {
-        return this.translator.getSupportedLanguages().contains(this.lang)
+        return this.translator.getSupportedLanguages().contains(lang)
             && this.translator.getSupportedVocabularies().contains(vocabulary);
     }
 }

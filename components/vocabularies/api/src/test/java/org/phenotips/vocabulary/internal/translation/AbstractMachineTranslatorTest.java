@@ -17,7 +17,6 @@
  */
 package org.phenotips.vocabulary.internal.translation;
 
-import org.phenotips.vocabulary.MachineTranslator;
 import org.phenotips.vocabulary.Vocabulary;
 import org.phenotips.vocabulary.VocabularyInputTerm;
 import org.phenotips.vocabulary.internal.solr.SolrVocabularyInputTerm;
@@ -31,21 +30,19 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 
+import org.apache.solr.common.SolrInputDocument;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.fail;
-
 import static org.hamcrest.Matchers.containsInAnyOrder;
-
-import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.argThat;
-import static org.mockito.Mockito.eq;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.argThat;
+import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -53,11 +50,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.apache.solr.common.SolrInputDocument;
-
 /**
- * Tests the common functionality in the abstract machine translator.
- * Works via a dummy concrete child.
+ * Tests the common functionality in the abstract machine translator. Works via a dummy concrete child.
  *
  * @version $Id$
  */
@@ -67,6 +61,8 @@ public class AbstractMachineTranslatorTest
      * The name of the vocabulary.
      */
     private static final String VOC_NAME = "dummy";
+
+    private static final String LANG = "es";
 
     /**
      * The mocker.
@@ -87,8 +83,8 @@ public class AbstractMachineTranslatorTest
     private AbstractMachineTranslator translator;
 
     /**
-     * A vocabulary input term meant to already exist in the dummy translation file.
-     * Check out dummy_dummy_es.xliff to see how it's specified.
+     * A vocabulary input term meant to already exist in the dummy translation file. Check out dummy_dummy_es.xliff to
+     * see how it's specified.
      */
     private VocabularyInputTerm term1;
 
@@ -115,7 +111,7 @@ public class AbstractMachineTranslatorTest
     /**
      * The added up length of the synonyms.
      */
-    private int synonymsLength = 0;
+    private int synonymsLength;
 
     /**
      * Set up the test.
@@ -123,67 +119,67 @@ public class AbstractMachineTranslatorTest
     @Before
     public void setUp() throws Exception
     {
-        Locale locale = new Locale("es");
-        LocalizationContext ctx = mocker.getInstance(LocalizationContext.class);
+        Locale locale = new Locale(LANG);
+        LocalizationContext ctx = this.mocker.getInstance(LocalizationContext.class);
         when(ctx.getCurrentLocale()).thenReturn(locale);
 
-        Environment environment = mocker.getInstance(Environment.class);
-        /* Gotta make sure it has a home so we can test that things are properly
-         * persisted */
-        when(environment.getPermanentDirectory()).thenReturn(folder.getRoot());
+        Environment environment = this.mocker.getInstance(Environment.class);
+        /*
+         * Gotta make sure it has a home so we can test that things are properly persisted
+         */
+        when(environment.getPermanentDirectory()).thenReturn(this.folder.getRoot());
 
         Vocabulary vocabulary = mock(Vocabulary.class);
 
-        synonyms.clear();
-        translatedSynonyms.clear();
-        synonyms.add("Newcastle United");
-        synonyms.add("West Ham");
-        synonyms.add("Blackburn Rovers");
-        for (String synonym : synonyms) {
-            synonymsLength += synonym.length();
-            translatedSynonyms.add("El " + synonym);
+        this.synonyms.clear();
+        this.translatedSynonyms.clear();
+        this.synonyms.add("Newcastle United");
+        this.synonyms.add("West Ham");
+        this.synonyms.add("Blackburn Rovers");
+        for (String synonym : this.synonyms) {
+            this.synonymsLength += synonym.length();
+            this.translatedSynonyms.add("El " + synonym);
         }
 
-        term1 = new SolrVocabularyInputTerm(new SolrInputDocument(), vocabulary);
-        term1.setId("DUM:0001");
-        term1.setName("Dummy");
-        term1.setDescription("Definition");
-        term1.set("synonym", synonyms);
+        this.term1 = new SolrVocabularyInputTerm(new SolrInputDocument(), vocabulary);
+        this.term1.setId("DUM:0001");
+        this.term1.setName("Dummy");
+        this.term1.setDescription("Definition");
+        this.term1.set("synonym", this.synonyms);
 
-        term2 = new SolrVocabularyInputTerm(new SolrInputDocument(), vocabulary);
-        term2.setId("DUM:0002");
-        term2.setName("Whatever");
-        term2.setDescription("Definitions!");
-        term2.set("synonym", synonyms);
+        this.term2 = new SolrVocabularyInputTerm(new SolrInputDocument(), vocabulary);
+        this.term2.setId("DUM:0002");
+        this.term2.setName("Whatever");
+        this.term2.setDescription("Definitions!");
+        this.term2.set("synonym", this.synonyms);
 
-        term1 = spy(term1);
-        term2 = spy(term2);
+        this.term1 = spy(this.term1);
+        this.term2 = spy(this.term2);
 
-        fields.clear();
-        fields.add("name");
+        this.fields.clear();
+        this.fields.add("name");
 
-        translator = spy(mocker.getComponentUnderTest());
-        translator.loadVocabulary(VOC_NAME);
+        this.translator = spy(this.mocker.getComponentUnderTest());
+        this.translator.loadVocabulary(VOC_NAME, LANG);
     }
 
     @After
     public void tearDown()
     {
-        translator.unloadVocabulary(VOC_NAME);
+        this.translator.unloadVocabulary(VOC_NAME, LANG);
     }
 
     /**
-     * Test that the machine translator will not retranslate something that's already
-     * in the file.
+     * Test that the machine translator will not retranslate something that's already in the file.
      */
     @Test
     public void testNoReTranslate()
     {
-        long count = translator.translate(VOC_NAME, term1, fields);
+        long count = this.translator.translate(VOC_NAME, LANG, this.term1, this.fields);
         assertEquals(0, count);
-        verify(translator, never()).doTranslate(term1.getName());
-        verify(term1).set("name_es", "El Dummy");
-        verify(term1, never()).set(eq("name"), any(String.class));
+        verify(this.translator, never()).doTranslate(this.term1.getName(), LANG);
+        verify(this.term1).set("name_es", "El Dummy");
+        verify(this.term1, never()).set(eq("name"), any(String.class));
     }
 
     /**
@@ -192,11 +188,11 @@ public class AbstractMachineTranslatorTest
     @Test
     public void testDoTranslate()
     {
-        long count = translator.translate(VOC_NAME, term2, fields);
-        assertEquals(term2.getName().length(), count);
-        verify(translator).doTranslate(term2.getName());
-        verify(term2).set("name_es", "El Whatever");
-        verify(term2, never()).set(eq("name"), any(String.class));
+        long count = this.translator.translate(VOC_NAME, LANG, this.term2, this.fields);
+        assertEquals(this.term2.getName().length(), count);
+        verify(this.translator).doTranslate(this.term2.getName(), LANG);
+        verify(this.term2).set("name_es", "El Whatever");
+        verify(this.term2, never()).set(eq("name"), any(String.class));
     }
 
     /**
@@ -205,12 +201,12 @@ public class AbstractMachineTranslatorTest
     @Test
     public void testRemember()
     {
-        translator.translate(VOC_NAME, term2, fields);
-        long count = translator.translate(VOC_NAME, term2, fields);
+        this.translator.translate(VOC_NAME, LANG, this.term2, this.fields);
+        long count = this.translator.translate(VOC_NAME, LANG, this.term2, this.fields);
         assertEquals(0, count);
-        verify(translator, times(1)).doTranslate(term2.getName());
-        verify(term2, times(2)).set("name_es", "El Whatever");
-        verify(term2, never()).set(eq("name"), any(String.class));
+        verify(this.translator, times(1)).doTranslate(this.term2.getName(), LANG);
+        verify(this.term2, times(2)).set("name_es", "El Whatever");
+        verify(this.term2, never()).set(eq("name"), any(String.class));
     }
 
     /**
@@ -219,13 +215,13 @@ public class AbstractMachineTranslatorTest
     @Test
     public void testNotWhenUnloaded()
     {
-        translator.unloadVocabulary(VOC_NAME);
+        this.translator.unloadVocabulary(VOC_NAME, LANG);
         try {
-            translator.translate(VOC_NAME, term1, fields);
+            this.translator.translate(VOC_NAME, LANG, this.term1, this.fields);
             fail("Did not throw on translate when unloaded");
         } catch (IllegalStateException e) {
             /* So tearDown doesn't fail */
-            translator.loadVocabulary(VOC_NAME);
+            this.translator.loadVocabulary(VOC_NAME, LANG);
         }
     }
 
@@ -235,53 +231,53 @@ public class AbstractMachineTranslatorTest
     @Test
     public void testNewField()
     {
-        fields.add("def");
-        long count = translator.translate(VOC_NAME, term1, fields);
-        assertEquals(term1.getDescription().length(), count);
-        verify(term1).set("def_es", "El " + term1.getDescription());
-        verify(term1, never()).set(eq("def"), any(String.class));
-        verify(translator).doTranslate(term1.getDescription());
+        this.fields.add("def");
+        long count = this.translator.translate(VOC_NAME, LANG, this.term1, this.fields);
+        assertEquals(this.term1.getDescription().length(), count);
+        verify(this.term1).set("def_es", "El " + this.term1.getDescription());
+        verify(this.term1, never()).set(eq("def"), any(String.class));
+        verify(this.translator).doTranslate(this.term1.getDescription(), LANG);
     }
 
     /**
-     * Test that previously performed translations are remembered accross
-     * restarts of the component.
+     * Test that previously performed translations are remembered accross restarts of the component.
      */
     @Test
     public void testPersist()
     {
-        translator.translate(VOC_NAME, term2, fields);
-        translator.unloadVocabulary(VOC_NAME);
-        translator.loadVocabulary(VOC_NAME);
-        long count = translator.translate(VOC_NAME, term2, fields);
+        this.translator.translate(VOC_NAME, LANG, this.term2, this.fields);
+        this.translator.unloadVocabulary(VOC_NAME, LANG);
+        this.translator.loadVocabulary(VOC_NAME, LANG);
+        long count = this.translator.translate(VOC_NAME, LANG, this.term2, this.fields);
         assertEquals(0, count);
-        verify(translator, times(1)).doTranslate(term2.getName());
-        verify(term2, times(2)).set("name_es", "El Whatever");
-        verify(term2, never()).set(eq("name"), any(String.class));
+        verify(this.translator, times(1)).doTranslate(this.term2.getName(), LANG);
+        verify(this.term2, times(2)).set("name_es", "El Whatever");
+        verify(this.term2, never()).set(eq("name"), any(String.class));
     }
 
     /**
-     * Test that a newly added field (to an already existing term)
-     * will have its translation persisted.
+     * Test that a newly added field (to an already existing term) will have its translation persisted.
      */
     @Test
     public void testNewFieldPersisted()
     {
-        fields.add("def");
-        translator.translate(VOC_NAME, term1, fields);
-        translator.unloadVocabulary(VOC_NAME);
-        translator.loadVocabulary(VOC_NAME);
-        long count = translator.translate(VOC_NAME, term1, fields);
+        this.fields.add("def");
+        this.translator.translate(VOC_NAME, LANG, this.term1, this.fields);
+        this.translator.unloadVocabulary(VOC_NAME, LANG);
+        this.translator.loadVocabulary(VOC_NAME, LANG);
+        long count = this.translator.translate(VOC_NAME, LANG, this.term1, this.fields);
         assertEquals(0, count);
         /* One time for each translation */
-        verify(term1, times(2)).set("def_es", "El Definition");
+        verify(this.term1, times(2)).set("def_es", "El Definition");
         /* Only once: for the first translation */
-        verify(translator, times(1)).doTranslate(term1.getDescription());
-        verify(term1, never()).set(eq("def"), any(String.class));
+        verify(this.translator, times(1)).doTranslate(this.term1.getDescription(), LANG);
+        verify(this.term1, never()).set(eq("def"), any(String.class));
     }
 
-    /* FIXME These are very tightly coupled to the current implementation's practice of using append()
-     * when dynamically translating and set() when just reading. That's not good. */
+    /*
+     * FIXME These are very tightly coupled to the current implementation's practice of using append() when dynamically
+     * translating and set() when just reading. That's not good.
+     */
 
     /**
      * Test that multivalued terms can be read from the translation.
@@ -289,13 +285,13 @@ public class AbstractMachineTranslatorTest
     @Test
     public void testReadMultiValued()
     {
-        fields.clear();
-        fields.add("synonym");
-        long count = translator.translate(VOC_NAME, term1, fields);
+        this.fields.clear();
+        this.fields.add("synonym");
+        long count = this.translator.translate(VOC_NAME, LANG, this.term1, this.fields);
         assertEquals(0, count);
-        verify(term1).set(eq("synonym_es"), argThat(containsInAnyOrder(translatedSynonyms.toArray())));
-        verify(term1, never()).set(eq("synonym"), any(Set.class));
-        verify(translator, never()).doTranslate(any(String.class));
+        verify(this.term1).set(eq("synonym_es"), argThat(containsInAnyOrder(this.translatedSynonyms.toArray())));
+        verify(this.term1, never()).set(eq("synonym"), any(Set.class));
+        verify(this.translator, never()).doTranslate(any(String.class), any(String.class));
     }
 
     /**
@@ -304,17 +300,17 @@ public class AbstractMachineTranslatorTest
     @Test
     public void testTranslateMultiValued()
     {
-        fields.clear();
-        fields.add("synonym");
-        long count = translator.translate(VOC_NAME, term2, fields);
-        assertEquals(synonymsLength, count);
-        verify(term2, never()).set(eq("synonym"), any(Set.class));
-        verify(translator, times(synonyms.size())).doTranslate(any(String.class));
-        for (String synonym : synonyms) {
-            verify(translator).doTranslate(eq(synonym));
+        this.fields.clear();
+        this.fields.add("synonym");
+        long count = this.translator.translate(VOC_NAME, LANG, this.term2, this.fields);
+        assertEquals(this.synonymsLength, count);
+        verify(this.term2, never()).set(eq("synonym"), any(Set.class));
+        verify(this.translator, times(this.synonyms.size())).doTranslate(any(String.class), any(String.class));
+        for (String synonym : this.synonyms) {
+            verify(this.translator).doTranslate(eq(synonym), eq(LANG));
         }
-        for (String synonym : translatedSynonyms) {
-            verify(term2).append(eq("synonym_es"), eq(synonym));
+        for (String synonym : this.translatedSynonyms) {
+            verify(this.term2).append(eq("synonym_es"), eq(synonym));
         }
     }
 
@@ -324,40 +320,39 @@ public class AbstractMachineTranslatorTest
     @Test
     public void testPersistMultiValued()
     {
-        fields.clear();
-        fields.add("synonym");
-        translator.translate(VOC_NAME, term2, fields);
-        translator.unloadVocabulary(VOC_NAME);
-        translator.loadVocabulary(VOC_NAME);
-        long count = translator.translate(VOC_NAME, term2, fields);
+        this.fields.clear();
+        this.fields.add("synonym");
+        this.translator.translate(VOC_NAME, LANG, this.term2, this.fields);
+        this.translator.unloadVocabulary(VOC_NAME, LANG);
+        this.translator.loadVocabulary(VOC_NAME, LANG);
+        long count = this.translator.translate(VOC_NAME, LANG, this.term2, this.fields);
         assertEquals(0, count);
-        verify(term2, never()).set(eq("synonym"), any(String.class));
-        verify(translator, times(synonyms.size())).doTranslate(any(String.class));
-        for (String synonym : synonyms) {
-            verify(translator, times(1)).doTranslate(eq(synonym));
+        verify(this.term2, never()).set(eq("synonym"), any(String.class));
+        verify(this.translator, times(this.synonyms.size())).doTranslate(any(String.class), any(String.class));
+        for (String synonym : this.synonyms) {
+            verify(this.translator, times(1)).doTranslate(eq(synonym), eq(LANG));
         }
-        for (String synonym : translatedSynonyms) {
-            verify(term2).append(eq("synonym_es"), eq(synonym));
+        for (String synonym : this.translatedSynonyms) {
+            verify(this.term2).append(eq("synonym_es"), eq(synonym));
         }
-        verify(term2).set(eq("synonym_es"),
-                argThat(containsInAnyOrder(translatedSynonyms.toArray())));
+        verify(this.term2).set(eq("synonym_es"),
+            argThat(containsInAnyOrder(this.translatedSynonyms.toArray())));
     }
 
     @Test
     public void testCount()
     {
-        fields.add("synonym");
-        fields.add("def");
-        long count = translator.getMissingCharacters(VOC_NAME, term2, fields);
-        assertEquals(term2.getName().length() + term2.getDescription().length() + synonymsLength,
-                count);
-        verify(term2, never()).set(any(String.class), any(Object.class));
+        this.fields.add("synonym");
+        this.fields.add("def");
+        long count = this.translator.getMissingCharacters(VOC_NAME, LANG, this.term2, this.fields);
+        assertEquals(this.term2.getName().length() + this.term2.getDescription().length() + this.synonymsLength,
+            count);
+        verify(this.term2, never()).set(any(String.class), any(Object.class));
     }
 
     /**
-     * Provides a dummy implementation of machine translator methods.
-     * Translates terms into Spanish following the cartoonish principle of prepending
-     * the definite article "El " to the word.
+     * Provides a dummy implementation of machine translator methods. Translates terms into Spanish following the
+     * cartoonish principle of prepending the definite article "El " to the word.
      *
      * @version $Id$
      */
@@ -367,7 +362,7 @@ public class AbstractMachineTranslatorTest
         public Collection<String> getSupportedLanguages()
         {
             Collection<String> retval = new HashSet<>(1);
-            retval.add("es");
+            retval.add(LANG);
             return retval;
         }
 
@@ -386,7 +381,7 @@ public class AbstractMachineTranslatorTest
         }
 
         @Override
-        protected String doTranslate(String msg)
+        protected String doTranslate(String msg, String lang)
         {
             return "El " + msg;
         }

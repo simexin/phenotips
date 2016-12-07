@@ -32,14 +32,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import javax.inject.Inject;
 
 import org.apache.commons.io.IOUtils;
-
 import org.slf4j.Logger;
 
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
@@ -82,32 +79,27 @@ public abstract class AbstractMachineTranslator implements MachineTranslator, In
     /**
      * The loaded translations.
      */
-    private Map<String, XLiffFile> translations = new HashMap<>();
+    private XLiffMap translations = new XLiffMap();
 
     /**
      * The xml mapper.
      */
     private XmlMapper mapper = new XmlMapper();
 
-    /**
-     * The current language.
-     */
-    private String lang;
-
     @Override
     public void initialize() throws InitializationException
     {
-        home = environment.getPermanentDirectory();
-        home = new File(home, HOME_DIR_NAME);
-        home = new File(home, getIdentifier());
-        if (!home.exists()) {
-            home.mkdirs();
+        this.home = this.environment.getPermanentDirectory();
+        this.home = new File(this.home, HOME_DIR_NAME);
+        this.home = new File(this.home, getIdentifier());
+        if (!this.home.exists()) {
+            this.home.mkdirs();
             for (String vocabulary : getSupportedVocabularies()) {
                 for (String language : getSupportedLanguages()) {
                     String name = getFileName(vocabulary, language);
                     InputStream resource = this.getClass().getResourceAsStream(name);
                     try {
-                        OutputStream out = new FileOutputStream(new File(home, name));
+                        OutputStream out = new FileOutputStream(new File(this.home, name));
                         IOUtils.copy(resource, out);
                         out.close();
                         resource.close();
@@ -146,45 +138,44 @@ public abstract class AbstractMachineTranslator implements MachineTranslator, In
      */
     protected File getHomeDir()
     {
-        return home;
+        return this.home;
     }
 
     @Override
-    public boolean loadVocabulary(String vocabulary)
+    public boolean loadVocabulary(String vocabulary, String lang)
     {
-        lang = localizationContext.getCurrentLocale().getLanguage();
-        File file = new File(home, getFileName(vocabulary, lang));
+        File file = new File(this.home, getFileName(vocabulary, lang));
         try {
-            XLiffFile xliff = mapper.readValue(file, XLiffFile.class);
-            translations.put(vocabulary, xliff);
+            XLiffFile xliff = this.mapper.readValue(file, XLiffFile.class);
+            this.translations.put(vocabulary, lang, xliff);
         } catch (IOException e) {
-            logger.error(String.format("Could not load %s: %s", file.toString(), e.getMessage()));
+            this.logger.error(String.format("Could not load %s: %s", file.toString(), e.getMessage()));
             return false;
         }
         return true;
     }
 
     @Override
-    public boolean unloadVocabulary(String vocabulary)
+    public boolean unloadVocabulary(String vocabulary, String lang)
     {
-        XLiffFile xliff = translations.remove(vocabulary);
-        File file = new File(home, getFileName(vocabulary, lang));
+        XLiffFile xliff = this.translations.remove(vocabulary, lang);
+        File file = new File(this.home, getFileName(vocabulary, lang));
         try {
-            mapper.writeValue(file, xliff);
+            this.mapper.writeValue(file, xliff);
         } catch (IOException e) {
-            logger.error(String.format("Threw on writing %s: %s", file.toString(),
-                        e.getMessage()));
+            this.logger.error(String.format("Threw on writing %s: %s", file.toString(),
+                e.getMessage()));
             return false;
         }
         return true;
     }
 
     @Override
-    public long getMissingCharacters(String vocabulary, VocabularyTerm term,
-            Collection<String> fields)
+    public long getMissingCharacters(String vocabulary, String lang, VocabularyTerm term,
+        Collection<String> fields)
     {
         long count = 0;
-        XLiffFile xliff = getXliff(vocabulary);
+        XLiffFile xliff = this.translations.get(vocabulary, lang);
         for (String field : fields) {
             if (xliff.getFirstString(term.getId(), field) == null) {
                 Object o = term.get(field);
@@ -204,10 +195,11 @@ public abstract class AbstractMachineTranslator implements MachineTranslator, In
     }
 
     @Override
-    public long translate(String vocabulary, VocabularyInputTerm term, Collection<String> fields)
+    public long translate(String vocabulary, String lang, VocabularyInputTerm term,
+        Collection<String> fields)
     {
         long count = 0;
-        XLiffFile xliff = getXliff(vocabulary);
+        XLiffFile xliff = this.translations.get(vocabulary, lang);
         for (String field : fields) {
             String translatedField = field + "_" + lang;
             Object o = term.get(field);
@@ -218,7 +210,7 @@ public abstract class AbstractMachineTranslator implements MachineTranslator, In
                 } else {
                     String string = (String) o;
                     count += string.length();
-                    String result = doTranslate(string);
+                    String result = doTranslate(string, lang);
                     if (result != null) {
                         term.set(translatedField, result);
                         xliff.setString(term.getId(), field, string, result);
@@ -230,7 +222,7 @@ public abstract class AbstractMachineTranslator implements MachineTranslator, In
                 if (there != null) {
                     term.set(translatedField, there);
                 } else {
-                    count += translateIterable(objects, term, field, translatedField, xliff);
+                    count += translateIterable(objects, lang, term, field, translatedField, xliff);
                 }
             }
         }
@@ -241,20 +233,21 @@ public abstract class AbstractMachineTranslator implements MachineTranslator, In
      * Translate an iterable field.
      *
      * @param objects the iterable
+     * @param lang the target language
      * @param term the vocabulary term
      * @param field the field we're translating
      * @param translatedField the translated name of the field
      * @param xliff the xliff file to store translations in.
      */
-    private long translateIterable(Iterable<Object> objects, VocabularyInputTerm term,
-            String field, String translatedField, XLiffFile xliff)
+    private long translateIterable(Iterable<Object> objects, String lang, VocabularyInputTerm term,
+        String field, String translatedField, XLiffFile xliff)
     {
         long count = 0;
         for (Object inner : objects) {
             if (inner instanceof String) {
                 String string = (String) inner;
                 count += string.length();
-                String result = doTranslate(string);
+                String result = doTranslate(string, lang);
                 if (result != null) {
                     term.append(translatedField, result);
                     xliff.appendString(term.getId(), field, string, result);
@@ -268,39 +261,12 @@ public abstract class AbstractMachineTranslator implements MachineTranslator, In
     }
 
     /**
-     * Actually run the input given through a machine translation.
-     * It's possible to return null here in which case no translation will be saved. This allows
-     * for graceful failing of the translator.
+     * Actually run the input given through a machine translation. It's possible to return null here in which case no
+     * translation will be saved. This allows for graceful failing of the translator.
      *
      * @param input the input
+     * @param lang the language
      * @return the translated string
      */
-    protected abstract String doTranslate(String input);
-
-    /**
-     * Get the XLiffFile object associated with the vocabulary given, throw if it isn't there.
-     *
-     * @param vocabulary the vocabulary to get an xliff for
-     * @return the xliff
-     * @throws IllegalStateException if the xliff file has not been read
-     */
-    protected XLiffFile getXliff(String vocabulary)
-    {
-        XLiffFile xliff = translations.get(vocabulary);
-        if (xliff == null) {
-            throw new IllegalStateException(String.format("Vocabulary %s never initialized",
-                        vocabulary));
-        }
-        return xliff;
-    }
-
-    /**
-     * Get the language we're translating to.
-     *
-     * @return the target language.
-     */
-    protected String getLanguage()
-    {
-        return lang;
-    }
+    protected abstract String doTranslate(String input, String lang);
 }
