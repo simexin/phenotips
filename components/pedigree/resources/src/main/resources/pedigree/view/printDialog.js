@@ -154,7 +154,7 @@ define([
             var closeShortcut = ['Esc'];
             this.dialog = new PhenoTips.widgets.ModalPopup(mainDiv, {close: {method : this.hide.bind(this), keys : closeShortcut}}, {extraClassName: "pedigree-print-dialog", title: "Print pedigree", displayCloseButton: true, verticalPosition: "top"});
 
-            Event.observe(window, 'resize', GraphicHelpers.adjustPreviewWindowHeight.bind(_this, "pedigree-print-dialog", 'printPreview', this._minPreviewHeight, this._maxPreviewHeight));
+            Event.observe(window, 'resize', _this._adjustPreviewWindowHeight.bind(_this));
         },
 
         /**
@@ -207,6 +207,13 @@ define([
         },
 
         /**
+         * Attempts to make preview window fit on screen by adjusting the preview pane height
+         */
+        _adjustPreviewWindowHeight: function() {
+            GraphicHelpers.adjustPreviewWindowHeight("pedigree-print-dialog", 'printPreview', this._minPreviewHeight, this._maxPreviewHeight);
+        }
+
+        /**
          * Updates print preview using currently selected zoom level.
          */
         _updatePreview: function() {
@@ -217,7 +224,7 @@ define([
                                                                     this._moveHorizontally,
                                                                     options);
             this.previewContainer.update(previewHTML);
-            GraphicHelpers.adjustPreviewWindowHeight("pedigree-print-dialog", 'printPreview', this._minPreviewHeight, this._maxPreviewHeight);
+            this._adjustPreviewWindowHeight();
 
             var _this = this;
             this._printPageSet = {};
