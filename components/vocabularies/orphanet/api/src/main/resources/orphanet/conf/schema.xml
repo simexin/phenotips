@@ -1,40 +1,26 @@
 <?xml version="1.0" encoding="UTF-8" ?>
+
 <!--
- Licensed to the Apache Software Foundation (ASF) under one or more
- contributor license agreements.  See the NOTICE file distributed with
- this work for additional information regarding copyright ownership.
- The ASF licenses this file to You under the Apache License, Version 2.0
- (the "License"); you may not use this file except in compliance with
- the License.  You may obtain a copy of the License at
-
-     http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
+ * See the NOTICE file distributed with this work for additional
+ * information regarding copyright ownership.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see http://www.gnu.org/licenses/
 -->
 
 <!--
  For more information, on how to customize this file, please see
  http://wiki.apache.org/solr/SchemaXml
-
- PERFORMANCE NOTE: this schema includes many optional features and should not
- be used for benchmarking.  To improve performance one could
-  - set stored="false" for all fields possible (esp large fields) when you
-    only need to search on the field but don't need to return the original
-    value.
-  - set indexed="false" if you don't need to search on the field, but only
-    return the field as a result of searching on other indexed fields.
-  - remove all unneeded copyField statements
-  - for best index size and searching performance, set "index" to false
-    for all general text fields, use copyField to copy them to the
-    catchall "text" field, and use that for searching.
-  - For maximum indexing performance, use the StreamingUpdateSolrServer
-    java client.
-  - Remember to run the JVM in server mode, and use a higher logging level
-    that avoids logging every request
 -->
 
 <schema name="orphanet" version="1.5">
@@ -132,14 +118,33 @@
   </types>
 
   <fields>
+    <field name="version" type="string" indexed="true" stored="true" omitNorms="true"/>
+
     <field name="id" type="string" indexed="true" stored="true" required="true" />
 
-    <field name="name" type="text_general" indexed="true" stored="true" required="true" />
-    <field name="nameSpell" type="text_spell" indexed="true" stored="false" required="true" />
-    <field name="nameSort" type="string" indexed="true" stored="false" required="true" />
+    <field name="name" type="text_general" indexed="true" stored="true"/>
+    <field name="nameSpell" type="text_spell" indexed="true" stored="false" />
+    <field name="nameSort" type="string" indexed="true" stored="false"/>
 
-    <field name="is_a" type="string" indexed="true" stored="true" />
+    <field name="term_group" type="string" indexed="true" stored="true"/>
+
+    <field name="is_a" type="string" indexed="true" stored="true" multiValued="true"/>
     <field name="term_category" type="string" indexed="true" stored="true" multiValued="true"/>
+    <field name="part_of" type="string" indexed="true" stored="true" multiValued="true"/>
+
+    <field name="age_of_onset" type="string" indexed="true" stored="true" multiValued="true"/>
+
+    <field name="present_in" type="string" indexed="true" stored="true" multiValued="true"/>
+
+    <field name="birth_prevalence" type="string" indexed="true" stored="true" multiValued="true"/>
+    <field name="lifetime_prevalence" type="string" indexed="true" stored="true" multiValued="true"/>
+    <field name="point_prevalence" type="string" indexed="true" stored="true" multiValued="true"/>
+
+    <field name="birth_prevalence_avg" type="string" indexed="true" stored="true" multiValued="true"/>
+    <field name="lifetime_prevalence_avg" type="string" indexed="true" stored="true" multiValued="true"/>
+    <field name="point_prevalence_avg" type="string" indexed="true" stored="true" multiValued="true"/>
+
+    <field name="inheritance" type="string" indexed="true" stored="true" multiValued="true"/>
 
     <!--OMIM HGNC Ensembl ids related to this entry. Some Orphanet terms have multiple linked external db ids.-->
     <dynamicField name="*_id" type="string" indexed="true" stored="true" multiValued="true"/>
@@ -173,12 +178,23 @@
     -->
   <uniqueKey>id</uniqueKey>
 
-  <copyField source="name" dest="nameSort"/>
-  <copyField source="name" dest="nameSpell"/>
-  <copyField source="def" dest="defSort"/>
-  <copyField source="def" dest="defSpell"/>
+  <copyField source="has_AgeOfOnset" dest="age_of_onset"/>
+  <copyField source="symbol" dest="gene_symbol"/>
+  <copyField source="label" dest="name"/>
+  <copyField source="label" dest="nameSort"/>
+  <copyField source="label" dest="nameSpell"/>
+  <copyField source="definition" dest="def"/>
+  <copyField source="definition" dest="defSort"/>
+  <copyField source="definition" dest="defSpell"/>
   <copyField source="alternative_term" dest="alternative_termSort"/>
   <copyField source="alternative_term" dest="alternative_termSpell"/>
+  <copyField source="has_point_prevalence_range" dest="point_prevalence"/>
+  <copyField source="has_birth_prevalence_range" dest="birth_prevalence"/>
+  <copyField source="has_lifetime_prevalence_range" dest="lifetime_prevalence"/>
+  <copyField source="has_point_prevalence_average_value" dest="point_prevalence_avg"/>
+  <copyField source="has_birth_prevalence_average_value" dest="birth_prevalence_avg"/>
+  <copyField source="has_lifetime_prevalence_average_value" dest="lifetime_prevalence_avg"/>
+  <copyField source="has_inheritance" dest="inheritance"/>
   <copyField source="*" dest="text"/>
   <copyField source="*" dest="textSpell"/>
 </schema>

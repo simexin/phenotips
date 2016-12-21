@@ -21,11 +21,12 @@ import org.phenotips.vocabulary.VocabularyTerm;
 
 import java.io.IOException;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
 
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.solr.client.solrj.SolrQuery;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.response.QueryResponse;
@@ -33,144 +34,172 @@ import org.apache.solr.common.SolrDocument;
 import org.apache.solr.common.SolrDocumentList;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrInputDocument;
+import org.apache.solr.common.params.CommonParams;
 
+import com.google.common.collect.ImmutableMap;
 import com.hp.hpl.jena.ontology.OntClass;
 import com.hp.hpl.jena.ontology.OntModel;
 import com.hp.hpl.jena.ontology.OntModelSpec;
 import com.hp.hpl.jena.rdf.model.ModelFactory;
+import com.hp.hpl.jena.rdf.model.RDFNode;
+import com.hp.hpl.jena.rdf.model.Statement;
+import com.hp.hpl.jena.util.iterator.ExtendedIterator;
 
 /**
  * Ontologies processed from OWL files share much of the processing code.
  *
  * @version $Id$
- * @since 1.2M4 (under different names since 1.1)
+ * @since 1.3M5
  */
 public abstract class AbstractOWLSolrVocabulary extends AbstractSolrVocabulary
 {
-    protected static final String VERSION_FIELD_NAME = "version";
+    static final Boolean DIRECT = true;
 
+    static final String SEPARATOR = ":";
+
+    private static final String VERSION_FIELD_NAME = "version";
+
+    private static final String TERM_GROUP_LABEL = "term_group";
+
+    private static final String HEADER_INFO_LABEL = "HEADER_INFO";
 
     @Override
-    public VocabularyTerm getTerm(String id) {
-        VocabularyTerm result = super.getTerm(id);
-        if (result == null) {
-            Map<String, String> queryParameters = new HashMap<>();
-            queryParameters.put("id", id);
-            List<VocabularyTerm> results = search(queryParameters);
-            if (results != null && !results.isEmpty()) {
-                result = search(queryParameters).iterator().next();
+    public VocabularyTerm getTerm(@Nullable final String id)
+    {
+        return StringUtils.isNotBlank(id) ? getTerm(id, super.getTerm(id)) : null;
+    }
+
+    /**
+     * Returns the result from the first attempt at search if not null, otherwise performs an additional search for
+     * the given term ID.
+     *
+     * @param id the ID of the term of interest
+     * @param firstAttempt the result of the first search attempt
+     * @return the {@link VocabularyTerm} corresponding with the given ID, null if no such {@link VocabularyTerm} exists
+     */
+    private VocabularyTerm getTerm(@Nonnull final String id, @Nullable final VocabularyTerm firstAttempt)
+    {
+        return firstAttempt != null ? firstAttempt : searchTerm(id);
+    }
+
+    /**
+     * Perform a search for the {@link VocabularyTerm} that corresponds with the given ID.
+     *
+     * @param id the ID of the term of interest
+     * @return the {@link VocabularyTerm} corresponding with the given ID, null if no such {@link VocabularyTerm} exists
+     */
+    private VocabularyTerm searchTerm(@Nonnull final String id)
+    {
+        final ImmutableMap.Builder<String, String> queryParamBuilder = ImmutableMap.builder();
+        queryParamBuilder.put(ID_FIELD_NAME, id);
+        final Collection<VocabularyTerm> results = search(queryParamBuilder.build());
+        return CollectionUtils.isNotEmpty(results) ? results.iterator().next() : searchTermWithoutPrefix(id);
+    }
+
+    /**
+     * If the ID stats with the optional prefix, removes the prefix and performs the search again.
+     *
+     * @param id the ID of the term of interest
+     * @return the {@link VocabularyTerm} corresponding with the given ID, null if no such {@link VocabularyTerm} exists
+     */
+    private VocabularyTerm searchTermWithoutPrefix(@Nonnull final String id)
+    {
+        final String optPrefix = this.getTermPrefix() + SEPARATOR;
+        return StringUtils.startsWith(id.toUpperCase(), optPrefix.toUpperCase())
+            ? getTerm(StringUtils.substringAfter(id, SEPARATOR))
+            : null;
+    }
+
+    @Override
+    protected int index(@Nullable final String sourceUrl)
+    {
+        final String url = StringUtils.isNotBlank(sourceUrl) ? sourceUrl : getDefaultSourceLocation();
+        // Fetch the ontology. If this is over the network, it may take a while.
+        final OntModel ontModel = ModelFactory.createOntologyModel(OntModelSpec.OWL_DL_MEM_TRANS_INF);
+        ontModel.read(url);
+        // Get the root classes of the ontology that we can start the parsing with.
+        final Collection<OntClass> roots = getRootClasses(ontModel);
+        // Reusing doc for speed (see http://wiki.apache.org/lucene-java/ImproveIndexingSpeed).
+        final SolrInputDocument doc = new SolrInputDocument();
+        try {
+            // Set the ontology model version.
+            setVersion(doc, ontModel);
+            // Create and add solr documents for each of the roots.
+            for (final OntClass root : roots) {
+                // Don't want to add Solr documents for general root categories, so start adding children.
+                addChildDocs(doc, root);
             }
-        }
-        return result;
-    }
-
-    @Override
-    public int reindex(String sourceUrl) {
-        this.clear();
-        return this.index(sourceUrl);
-    }
-
-    /**
-     * Add a vocabulary to the index.
-     *
-     * @param sourceUrl the address from where to get the vocabulary source file
-     *
-     * @return {@code 0} if the indexing succeeded, {@code 1} if writing to the Solr server failed, {@code 2} if the
-     * specified URL is invalid
-     */
-    protected int index(String sourceUrl) {
-        // fetch the ontology. If this is over the network, it may take a while.
-        OntModel ontModel = ModelFactory.createOntologyModel(OntModelSpec.OWL_MEM);
-        ontModel.read(sourceUrl);
-
-        // get the root classes of the ontology that we can start the parsing with.
-        Collection<OntClass> roots = getRootClasses(ontModel);
-        // reusing doc for speed (see http://wiki.apache.org/lucene-java/ImproveIndexingSpeed)
-        SolrInputDocument doc = new SolrInputDocument();
-        for (OntClass root : roots) {
-            addDoc(doc, root, roots);
-        }
-
-        try {
-            this.externalServicesAccess.getSolrConnection().commit(true, true);
-        } catch (SolrServerException ex) {
-            this.logger.warn("Failed to index ontology: {}", ex.getMessage());
-            return 1;
-        } catch (IOException ex) {
-            this.logger.warn("Failed to communicate with the Solr server while indexing ontology: {}",
-                    ex.getMessage());
-            return 1;
-        }
-
-        return 0;
-    }
-
-    private void addDoc(SolrInputDocument doc, OntClass ontClass, Collection<OntClass> roots) {
-        this.parseSolrDocumentFromOntClass(doc, ontClass, roots);
-
-        try {
-            this.externalServicesAccess.getSolrConnection().add(doc);
-            doc.clear();
-        } catch (SolrServerException ex) {
-            this.logger.warn("Failed to add a document when indexing ontology: {}", ex.getMessage());
-            return;
-        } catch (IOException ex) {
-            this.logger.warn("Failed to communicate with the Solr server while adding a document to an ontology: {}",
-                    ex.getMessage());
-            return;
-        } catch (OutOfMemoryError ex) {
-            this.logger.warn("Failed to add terms to the Solr. Ran out of memory. {}", ex.getMessage());
-            return;
-        }
-
-
-        // extract any subclasses, add our class to the roots, and recurse.
-        // this shouldn't lead us to walk circles in the ontology, since subclasses are implicit.
-        Collection<OntClass> newRoots = new HashSet<>(roots);
-        newRoots.add(ontClass);
-        for (OntClass subClass : ontClass.listSubClasses().toSet()) {
-            addDoc(doc, subClass, newRoots);
-        }
-    }
-
-    protected abstract Collection<OntClass> getRootClasses(OntModel ontModel);
-
-    protected abstract SolrInputDocument parseSolrDocumentFromOntClass(SolrInputDocument doc,
-                                                                       OntClass ontClass,
-                                                                       Collection<OntClass> roots);
-
-    /**
-     * Delete all the data in the Solr index.
-     *
-     * @return {@code 0} if the command was successful, {@code 1} otherwise
-     */
-    protected int clear() {
-        try {
-            this.externalServicesAccess.getSolrConnection().deleteByQuery("*:*");
+            commitDocs();
             return 0;
         } catch (SolrServerException ex) {
-            this.logger.error("SolrServerException while clearing the Solr index", ex);
+            this.logger.warn("Failed to index ontology: {}", ex.getMessage());
         } catch (IOException ex) {
-            this.logger.error("IOException while clearing the Solr index", ex);
+            this.logger.warn("Failed to communicate with the Solr server while indexing ontology: {}", ex.getMessage());
+        } catch (OutOfMemoryError ex) {
+            this.logger.warn("Failed to add terms to the Solr. Ran out of memory. {}", ex.getMessage());
         }
         return 1;
     }
 
+    /**
+     * Create a document for the ontology class, and add it to the index.
+     *
+     * @param doc the reusable Solr input document
+     * @param ontClass the ontology class that should be parsed
+     * @param root the top root category for ontClass
+     */
+    private void addDoc(@Nonnull final SolrInputDocument doc, @Nonnull final OntClass ontClass,
+        @Nonnull final OntClass root) throws IOException, SolrServerException
+    {
+        parseSolrDocumentFromOntClass(doc, ontClass, root);
+        parseSolrDocumentFromOntParentClasses(doc, ontClass);
+        this.externalServicesAccess.getSolrConnection().add(doc);
+        doc.clear();
+    }
+
+    /**
+     * Adds any of the sub-documents of the specified ontology class.
+     * @param doc the reusable Solr input document
+     * @param ontClass the ontology class that should be parsed
+     */
+    private void addChildDocs(@Nonnull final SolrInputDocument doc, @Nonnull final OntClass ontClass)
+        throws IOException, SolrServerException
+    {
+        // Get the direct subclasses of ontClass, and add a Solr document for each of them.
+        final ExtendedIterator<OntClass> subClasses = ontClass.listSubClasses();
+        int counter = 0;
+        while (subClasses.hasNext()) {
+            if (counter == getSolrDocsPerBatch()) {
+                commitDocs();
+                counter = 0;
+            }
+            final OntClass subClass = subClasses.next();
+            addDoc(doc, subClass, ontClass);
+            counter++;
+        }
+        subClasses.close();
+    }
+
+    /**
+     * Commits the batch of newly-processed documents.
+     */
+    private void commitDocs() throws IOException, SolrServerException
+    {
+        this.externalServicesAccess.getSolrConnection().commit();
+        this.externalServicesAccess.getTermCache().removeAll();
+    }
+
     @Override
     public String getVersion() {
-        QueryResponse response;
-        SolrQuery query = new SolrQuery();
-        SolrDocumentList termList;
-        SolrDocument firstDoc;
-
+        final SolrQuery query = new SolrQuery();
         query.setQuery("version:*");
-        query.set("rows", "1");
+        query.set(CommonParams.ROWS, "1");
         try {
-            response = this.externalServicesAccess.getSolrConnection().query(query);
-            termList = response.getResults();
+            final QueryResponse response = this.externalServicesAccess.getSolrConnection().query(query);
+            final SolrDocumentList termList = response.getResults();
 
             if (!termList.isEmpty()) {
-                firstDoc = termList.get(0);
+                final SolrDocument firstDoc = termList.get(0);
                 return firstDoc.getFieldValue(VERSION_FIELD_NAME).toString();
             }
         } catch (SolrServerException | SolrException | IOException ex) {
@@ -179,8 +208,140 @@ public abstract class AbstractOWLSolrVocabulary extends AbstractSolrVocabulary
         return null;
     }
 
-    /** The number of documents to be added and committed to Solr at a time. */
-    protected int getSolrDocsPerBatch() {
-        return 0;
+    /**
+     * Sets the ontology version data.
+     *
+     * @param doc the Solr input document
+     * @param ontModel the ontology model
+     * @throws IOException if failed to communicate with Solr server while indexing ontology
+     * @throws SolrServerException if failed to index ontology
+     */
+    private void setVersion(@Nonnull final SolrInputDocument doc, @Nonnull final OntModel ontModel)
+        throws IOException, SolrServerException
+    {
+        final String version = ontModel.getOntology(getBaseOntologyUri()).getVersionInfo();
+        if (StringUtils.isNotBlank(version)) {
+            doc.addField(ID_FIELD_NAME, HEADER_INFO_LABEL);
+            doc.addField(VERSION_FIELD_NAME, version);
+            this.externalServicesAccess.getSolrConnection().add(doc);
+            doc.clear();
+        }
     }
+
+    /**
+     * Creates a Solr document from the provided ontology class.
+     *
+     * @param doc Solr input document
+     * @param ontClass the ontology class
+     * @param root the top root category for ontClass
+     * @return the Solr input document
+     */
+    private SolrInputDocument parseSolrDocumentFromOntClass(@Nonnull final SolrInputDocument doc,
+        @Nonnull final OntClass ontClass, @Nonnull final OntClass root)
+    {
+        doc.addField(ID_FIELD_NAME, getFormattedOntClassId(ontClass.getLocalName()));
+        doc.addField(TERM_GROUP_LABEL, root.getLabel(null));
+        extractProperties(doc, ontClass);
+        return doc;
+    }
+
+    /**
+     * Adds parent data for provided ontology class to the Solr document.
+     *
+     * @param doc Solr input document
+     * @param ontClass the ontology class
+     * @return the Solr input document
+     */
+    private SolrInputDocument parseSolrDocumentFromOntParentClasses(@Nonnull final SolrInputDocument doc,
+        @Nonnull final OntClass ontClass)
+    {
+        // This will list all superclasses for ontClass.
+        final ExtendedIterator<OntClass> parents = ontClass.listSuperClasses(!DIRECT);
+        while (parents.hasNext()) {
+            final OntClass parent = parents.next();
+            extractClassData(doc, ontClass, parent);
+        }
+        parents.close();
+        return doc;
+    }
+
+    /**
+     * Extracts properties from the ontology class, and adds the data to the Solr input document.
+     *
+     * @param doc the Solr input document
+     * @param ontClass the ontology class
+     */
+    private void extractProperties(@Nonnull final SolrInputDocument doc, @Nonnull final OntClass ontClass)
+    {
+        final ExtendedIterator<Statement> statements = ontClass.listProperties();
+        while (statements.hasNext()) {
+            final Statement statement = statements.next();
+
+            final RDFNode object = statement.getObject();
+            final String relation = statement.getPredicate().getLocalName();
+
+            extractProperty(doc, relation, object);
+        }
+        statements.close();
+    }
+
+    /**
+     * Returns a prefix for the vocabulary term (e.g. ORPHA, HPO).
+     *
+     * @return the prefix for the vocabulary term, as string
+     */
+    abstract String getTermPrefix();
+
+    /**
+     * Extracts relevant data from the the parent class of ontClass, and writes it to the Solr input document associated
+     * with ontClass.
+     *
+     * @param doc the Solr input document
+     * @param ontClass the ontology class of interest
+     * @param parent the parent of ontClass
+     * @return the Solr input document
+     */
+    abstract SolrInputDocument extractClassData(@Nonnull final SolrInputDocument doc,
+        @Nonnull final OntClass ontClass, @Nonnull final OntClass parent);
+
+    /**
+     * Get a numerical id string from a localName. Assuming the localName is in the form "Orphanet_XXX". If localName
+     * is an empty string or is null, will return null.
+     *
+     * @param localName the localName of an OWL class if localName is not null or empty, null otherwise.
+     * @return the string id.
+     */
+    abstract String getFormattedOntClassId(@Nullable final String localName);
+
+    /**
+     * Adds the property value to the Solr input document, if it is an item of interest.
+     *
+     * @param doc the Solr input document
+     * @param relation property name
+     * @param object the rdf data node
+     */
+    abstract void extractProperty(@Nonnull final SolrInputDocument doc, @Nonnull final String relation,
+        @Nonnull final RDFNode object);
+
+    /**
+     * Get a collection of root classes from the provided ontology model.
+     *
+     * @param ontModel the provided ontology model
+     * @return a collection of root classes
+     */
+    abstract Collection<OntClass> getRootClasses(@Nonnull final OntModel ontModel);
+
+    /**
+     * The number of documents to be added and committed to Solr at a time.
+     *
+     * @return the number of documents as an integer
+     */
+    abstract int getSolrDocsPerBatch();
+
+    /**
+     * Retrieves the base URI for the ontology.
+     *
+     * @return the base URI of the ontology, as string
+     */
+    abstract String getBaseOntologyUri();
 }
