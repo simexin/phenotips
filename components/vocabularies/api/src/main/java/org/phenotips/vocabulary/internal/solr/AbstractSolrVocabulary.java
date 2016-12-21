@@ -26,6 +26,7 @@ import org.phenotips.vocabulary.VocabularyTerm;
 import org.xwiki.component.phase.Initializable;
 import org.xwiki.component.phase.InitializationException;
 
+import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -37,6 +38,7 @@ import java.util.Set;
 import javax.inject.Inject;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.response.QueryResponse;
 import org.apache.solr.client.solrj.util.ClientUtils;
 import org.apache.solr.common.SolrDocument;
@@ -179,10 +181,52 @@ public abstract class AbstractSolrVocabulary implements Vocabulary, Initializabl
     }
 
     @Override
-    public int reindex(String sourceUrl)
+    public int reindex(String sourceUrl) {
+        int retval = 1;
+        try {
+            for (VocabularyExtension ext : this.extensions) {
+                ext.indexingStarted(this);
+            }
+            this.clear();
+            retval = this.index(sourceUrl);
+        } finally {
+            for (VocabularyExtension ext : this.extensions) {
+                ext.indexingEnded(this);
+            }
+        }
+        return retval;
+    }
+
+    /**
+     * Add a vocabulary to the index.
+     *
+     * @param sourceUrl the address from where to get the vocabulary source file
+     *
+     * @return {@code 0} if the indexing succeeded, {@code 1} if writing to the Solr server failed, {@code 2} if the
+     * specified URL is invalid
+     */
+    protected int index(String sourceUrl)
     {
         // FIXME Not implemented yet
         throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Delete all the data in the Solr index.
+     *
+     * @return {@code 0} if the command was successful, {@code 1} otherwise
+     */
+    protected int clear()
+    {
+        try {
+            this.externalServicesAccess.getSolrConnection().deleteByQuery("*:*");
+            return 0;
+        } catch (SolrServerException ex) {
+            this.logger.error("SolrServerException while clearing the Solr index", ex);
+        } catch (IOException ex) {
+            this.logger.error("IOException while clearing the Solr index", ex);
+        }
+        return 1;
     }
 
     @Override

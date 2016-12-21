@@ -20,7 +20,6 @@ package org.phenotips.vocabulary.internal.solr;
 import org.phenotips.obo2solr.ParameterPreparer;
 import org.phenotips.obo2solr.SolrUpdateGenerator;
 import org.phenotips.obo2solr.TermData;
-import org.phenotips.vocabulary.VocabularyExtension;
 import org.phenotips.vocabulary.VocabularyTerm;
 
 import java.io.IOException;
@@ -81,30 +80,6 @@ public abstract class AbstractOBOSolrVocabulary extends AbstractSolrVocabulary
     }
 
     @Override
-    public int reindex(String sourceUrl)
-    {
-        int retval = 1;
-        try {
-            for (VocabularyExtension ext : this.extensions) {
-                ext.indexingStarted(this);
-            }
-            this.clear();
-            retval = this.index(sourceUrl);
-        } finally {
-            for (VocabularyExtension ext : this.extensions) {
-                ext.indexingEnded(this);
-            }
-        }
-        return retval;
-    }
-
-    /**
-     * Add a vocabulary to the index.
-     *
-     * @param sourceUrl the address from where to get the vocabulary source file
-     * @return {@code 0} if the indexing succeeded, {@code 1} if writing to the Solr server failed, {@code 2} if the
-     *         specified URL is invalid
-     */
     protected int index(String sourceUrl)
     {
         String realOntologyUrl = StringUtils.defaultIfBlank(sourceUrl, getDefaultSourceLocation());
@@ -157,24 +132,6 @@ public abstract class AbstractOBOSolrVocabulary extends AbstractSolrVocabulary
         this.externalServicesAccess.getSolrConnection().add(batch);
         this.externalServicesAccess.getSolrConnection().commit();
         this.externalServicesAccess.getTermCache().removeAll();
-    }
-
-    /**
-     * Delete all the data in the Solr index.
-     *
-     * @return {@code 0} if the command was successful, {@code 1} otherwise
-     */
-    protected int clear()
-    {
-        try {
-            this.externalServicesAccess.getSolrConnection().deleteByQuery("*:*");
-            return 0;
-        } catch (SolrServerException ex) {
-            this.logger.error("SolrServerException while clearing the Solr index", ex);
-        } catch (IOException ex) {
-            this.logger.error("IOException while clearing the Solr index", ex);
-        }
-        return 1;
     }
 
     @Override

@@ -228,22 +228,4 @@ public class MendelianInheritanceInMan extends AbstractSolrVocabulary
         }
         return 0;
     }
-
-    /**
-     * Delete all the data in the Solr index.
-     *
-     * @return {@code 0} if the command was successful, {@code 1} otherwise
-     */
-    private int clear()
-    {
-        try {
-            this.externalServicesAccess.getSolrConnection().deleteByQuery("*:*");
-            return 0;
-        } catch (SolrServerException ex) {
-            this.logger.error("SolrServerException while clearing the Solr index", ex);
-        } catch (IOException ex) {
-            this.logger.error("IOException while clearing the Solr index", ex);
-        }
-        return 1;
-    }
 }
